@@ -61,12 +61,11 @@ build-static:
     exit 1
   fi
   # Use LIBRARY_PATH so the linker resolves -lzstd from our local static lib.
-  # pkg-config gives the correct link-order for static OpenSSL.
+  # age-crystal v0.3.0+ is pure Crystal — no OpenSSL static libs required.
   export LIBRARY_PATH="$PWD/.local/lib"
   static_flags="--release --no-debug --static"
-  static_link_flags="-L$PWD/.local/lib $(pkg-config --libs --static libcrypto 2>/dev/null || printf %s '-lz')"
-  crystal build src/cli/server.cr  -o {{bin_dir}}/agesh-server $static_flags --link-flags="$static_link_flags" --threads {{ncpus}}
-  crystal build src/cli/client.cr  -o {{bin_dir}}/agesh         $static_flags --link-flags="$static_link_flags" --threads {{ncpus}}
+  crystal build src/cli/server.cr  -o {{bin_dir}}/agesh-server $static_flags --threads {{ncpus}}
+  crystal build src/cli/client.cr  -o {{bin_dir}}/agesh         $static_flags --threads {{ncpus}}
   strip {{bin_dir}}/agesh-server {{bin_dir}}/agesh
   echo "  ✓ Server  ({{bin_dir}}/agesh-server, static, $(ls -lh {{bin_dir}}/agesh-server | awk '{print $5}'))"
   echo "  ✓ Client  ({{bin_dir}}/agesh, static, $(ls -lh {{bin_dir}}/agesh | awk '{print $5}'))"
