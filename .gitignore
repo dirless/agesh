@@ -2,3 +2,4 @@ bin/
 .crystal_cache/
 lib/
 docs/
+.local/

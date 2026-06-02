@@ -44,12 +44,24 @@ lint:
   @command -v ameba >/dev/null 2>&1 && ameba src/ spec/ || echo "  ⚠ ameba not installed — skipping"
 
 # --- Statically linked binaries ---
+#
+# Requires libzstd.a in .local/lib (Debian doesn't ship a static zstd library).
+# Build from source:
+#   git clone --depth 1 https://github.com/facebook/zstd.git /tmp/zstd
+#   cd /tmp/zstd && make lib-release
+#   mkdir -p .local/lib && cp lib/libzstd.a .local/lib/
 build-static:
   #!/usr/bin/env bash
   set -euo pipefail
   mkdir -p {{bin_dir}}
-  # pkg-config provides the correct link-order for a static OpenSSL link
-  static_link_flags=$(pkg-config --libs --static libcrypto 2>/dev/null || printf %s '-lz -lzstd')
+  if [[ ! -f .local/lib/libzstd.a ]]; then
+    echo "  ⚠ .local/lib/libzstd.a not found — see justfile header for build instructions"
+    exit 1
+  fi
+  # Use LIBRARY_PATH so the linker resolves -lzstd from our local static lib.
+  # pkg-config gives the correct link-order for static OpenSSL.
+  export LIBRARY_PATH="$PWD/.local/lib"
+  static_link_flags="-L$PWD/.local/lib $(pkg-config --libs --static libcrypto 2>/dev/null || printf %s '-lz')"
   crystal build src/cli/server.cr  -o {{bin_dir}}/agesh-server {{release_flags}} --static --link-flags="$static_link_flags" --threads {{ncpus}}
   crystal build src/cli/client.cr  -o {{bin_dir}}/agesh         {{release_flags}} --static --link-flags="$static_link_flags" --threads {{ncpus}}
   strip {{bin_dir}}/agesh-server {{bin_dir}}/agesh
