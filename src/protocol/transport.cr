@@ -63,8 +63,8 @@ module AgeSh
       def initialize(transport_key : Bytes, @role : Role)
         # Client sends with SEND_INFO, server receives with SEND_INFO.
         # Server sends with RECV_INFO, client receives with RECV_INFO.
-        send_key = Age::HKDF.sha256(transport_key, Constants::SEND_INFO.to_slice, Bytes.new(0), 32)
-        recv_key = Age::HKDF.sha256(transport_key, Constants::RECV_INFO.to_slice, Bytes.new(0), 32)
+        send_key = Age::HKDF.sha256(transport_key, Bytes.new(0), Constants::SEND_INFO.to_slice, 32)
+        recv_key = Age::HKDF.sha256(transport_key, Bytes.new(0), Constants::RECV_INFO.to_slice, 32)
 
         case @role
         in Role::Client

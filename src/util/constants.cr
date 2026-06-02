@@ -1,6 +1,6 @@
 module AgeSh
   module Constants
-    VERSION          = "0.0.1"
+    VERSION          = "0.0.2"
     PROTOCOL_VERSION = 1_u8
     DEFAULT_PORT     = 2202
 

@@ -15,6 +15,7 @@ module AgeSh
       username : String,
       pubkey_str : String,
       secret_key_bytes : Bytes,
+      pub_bytes : Bytes,
     ) : Nil
       # Send auth request
       request = Messages.write_auth_request(username, pubkey_str)
@@ -26,8 +27,8 @@ module AgeSh
       _, challenge_data = transport.recv_record(encrypted_challenge)
       challenge, ephemeral_pub, wrapped = Messages.read_auth_challenge(challenge_data)
 
-      # Unwrap the challenge using our secret key
-      decrypted = Crypto::AuthWrap.unwrap(ephemeral_pub, wrapped, secret_key_bytes)
+      # Unwrap the challenge using our secret key (pass pub_bytes to skip redundant scalar mult)
+      decrypted = Crypto::AuthWrap.unwrap(ephemeral_pub, wrapped, secret_key_bytes, pub_bytes)
 
       # Verify it matches the plaintext challenge (constant-time)
       raise Error.new("Auth failed: challenge mismatch") unless constant_time_eq(decrypted, challenge)

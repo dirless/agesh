@@ -29,7 +29,12 @@ module AgeSh
         LibC.exit(1)
       end
       secret_key_str = File.read(identity_path).strip
-      secret_key = Age::SecretKey.new(secret_key_str)
+      secret_key = begin
+        Age::SecretKey.new(secret_key_str)
+      rescue ex : Age::Error
+        STDERR.puts "Error: invalid identity file #{identity_path}: #{ex.message}"
+        LibC.exit(1)
+      end
 
       # Decode secret key to raw bytes
       hrp, sec_bytes = Age::Bech32.decode(secret_key_str.downcase)
@@ -45,7 +50,7 @@ module AgeSh
         server_pub, transport = Handshake.client(socket)
 
         # Phase 2: Authenticate
-        Authentication.client(transport, socket, config.username, pubkey.value, sec_bytes)
+        Authentication.client(transport, socket, config.username, pubkey.value, sec_bytes, pub_bytes)
 
         # Phase 3: Session setup
         AgeSh::Client::Terminal.update_winsize
@@ -81,7 +86,7 @@ module AgeSh
         buf = Bytes.new(Constants::MAX_RECORD_SIZE)
         loop do
           count = stdin.read(buf)
-          if count.nil? || count == 0
+          if count == 0
             # Stdin closed — send session end
             send_end(transport, socket)
             done.send(nil) rescue nil
@@ -161,7 +166,10 @@ module AgeSh
       host = ""
       port = Constants::DEFAULT_PORT
       identity = File.expand_path(Constants::DEFAULT_IDENTITY_FILE, home: true)
-      username = ENV["USER"]? || "root"
+      username = ENV["USER"]? || begin
+        STDERR.puts "Error: cannot determine username (USER not set); specify user@host explicitly"
+        LibC.exit(1)
+      end
 
       i = 0
       while i < args.size

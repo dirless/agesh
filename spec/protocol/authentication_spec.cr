@@ -37,7 +37,7 @@ describe AgeSh::Authentication do
     recv_challenge, recv_ephem, recv_wrapped = AgeSh::Messages.read_auth_challenge(challenge_data)
 
     # === Client unwraps challenge ===
-    decrypted = AgeSh::Crypto::AuthWrap.unwrap(recv_ephem, recv_wrapped, sec_bytes)
+    decrypted = AgeSh::Crypto::AuthWrap.unwrap(recv_ephem, recv_wrapped, sec_bytes, pub_bytes)
     decrypted.should eq(recv_challenge)
 
     # === Client sends AUTH_RESPONSE -> Server reads it ===
@@ -62,6 +62,7 @@ describe AgeSh::Authentication do
     wrong_keypair = Age.keygen
     _, pub_bytes = Age::Bech32.decode(keypair.public_key.value)
     _, wrong_sec_bytes = Age::Bech32.decode(wrong_keypair.secret_key.value.downcase)
+    _, wrong_pub_bytes = Age::Bech32.decode(wrong_keypair.public_key.value)
 
     transport_key = Random::Secure.random_bytes(32)
     client_transport = AgeSh::Transport::Session.new(transport_key, AgeSh::Transport::Role::Client)
@@ -85,7 +86,7 @@ describe AgeSh::Authentication do
 
     # Client tries to unwrap with wrong key — should fail
     expect_raises(Age::Error) do
-      AgeSh::Crypto::AuthWrap.unwrap(recv_ephem, recv_wrapped, wrong_sec_bytes)
+      AgeSh::Crypto::AuthWrap.unwrap(recv_ephem, recv_wrapped, wrong_sec_bytes, wrong_pub_bytes)
     end
   end
 end

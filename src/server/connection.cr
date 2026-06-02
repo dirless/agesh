@@ -66,7 +66,7 @@ module AgeSh
           buf = Bytes.new(Constants::MAX_RECORD_SIZE)
           loop do
             count = pty_io.read(buf)
-            if count.nil? || count == 0
+            if count == 0
               done.send(nil) rescue nil
               break
             end
@@ -115,7 +115,8 @@ module AgeSh
 
         case tag
         when Constants::TAG_DATA
-          LibC.write(master_fd, payload.to_unsafe.as(Void*), payload.size)
+          written = LibC.write(master_fd, payload.to_unsafe.as(Void*), payload.size)
+          return false if written < 0
         when Constants::TAG_WINDOW_RESIZE
           handle_resize(payload, master_fd)
         when Constants::TAG_SESSION_END

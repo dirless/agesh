@@ -29,15 +29,16 @@ module AgeSh
       end
 
       # Unwrap a challenge using the client's AGE secret key.
+      # pub_bytes is the caller's own public key (avoids a redundant scalar mult).
       # Returns the plaintext challenge if successful.
-      def self.unwrap(ephemeral_pub : Bytes, wrapped : Bytes, secret_key_bytes : Bytes) : Bytes
+      def self.unwrap(ephemeral_pub : Bytes, wrapped : Bytes, secret_key_bytes : Bytes, pub_bytes : Bytes) : Bytes
         raise Error.new("Ephemeral pubkey must be 32 bytes") unless ephemeral_pub.size == 32
         raise Error.new("Wrapped must be 48 bytes") unless wrapped.size == 48
         raise Error.new("Secret key must be 32 bytes") unless secret_key_bytes.size == 32
+        raise Error.new("Public key must be 32 bytes") unless pub_bytes.size == 32
 
         shared = Age::X25519.shared_secret(secret_key_bytes, ephemeral_pub)
 
-        pub_bytes = Age::X25519.public_from_private(secret_key_bytes)
         salt = Bytes.new(64)
         ephemeral_pub.copy_to(salt[0, 32])
         pub_bytes.copy_to(salt[32, 32])

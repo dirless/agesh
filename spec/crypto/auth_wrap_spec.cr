@@ -12,7 +12,7 @@ describe AgeSh::Crypto::AuthWrap do
     ephem_pub.size.should eq(32)
     wrapped.size.should eq(48) # 32 + 16 tag
 
-    recovered = AgeSh::Crypto::AuthWrap.unwrap(ephem_pub, wrapped, secret_key_bytes)
+    recovered = AgeSh::Crypto::AuthWrap.unwrap(ephem_pub, wrapped, secret_key_bytes, recipient_pub_bytes)
     recovered.should eq(challenge)
   end
 
@@ -23,11 +23,12 @@ describe AgeSh::Crypto::AuthWrap do
 
     _, recipient_pub_bytes = Age::Bech32.decode(keypair.public_key.value)
     _, wrong_sec_bytes = Age::Bech32.decode(wrong_keypair.secret_key.value.downcase)
+    _, wrong_pub_bytes = Age::Bech32.decode(wrong_keypair.public_key.value)
 
     ephem_pub, wrapped = AgeSh::Crypto::AuthWrap.wrap(challenge, recipient_pub_bytes)
 
     expect_raises(Age::Error) do
-      AgeSh::Crypto::AuthWrap.unwrap(ephem_pub, wrapped, wrong_sec_bytes)
+      AgeSh::Crypto::AuthWrap.unwrap(ephem_pub, wrapped, wrong_sec_bytes, wrong_pub_bytes)
     end
   end
 
