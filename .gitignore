@@ -1,0 +1,4 @@
+bin/
+.crystal_cache/
+lib/
+docs/
