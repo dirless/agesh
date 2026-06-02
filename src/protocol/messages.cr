@@ -128,14 +128,14 @@ module AgeSh
       raise Error.new("Not a session setup") unless data[0] == Constants::MSG_SESSION_SETUP
       payload = data[1, data.size - 1]
       reader = IO::Memory.new(payload)
-      term_type = reader.gets('\0').try(&.rstrip('\0')) || ""
+      term_type = reader.gets('\0') || ""
       rows = reader.read_bytes(UInt32, IO::ByteFormat::BigEndian)
       cols = reader.read_bytes(UInt32, IO::ByteFormat::BigEndian)
       env_count = reader.read_bytes(UInt16, IO::ByteFormat::BigEndian)
       env = Hash(String, String).new
       env_count.times do
-        key = reader.gets('\0').try(&.rstrip('\0')) || ""
-        value = reader.gets('\0').try(&.rstrip('\0')) || ""
+        key = reader.gets('\0') || ""
+        value = reader.gets('\0') || ""
         env[key] = value
       end
       {term_type, rows, cols, env}

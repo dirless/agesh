@@ -31,8 +31,24 @@ module AgeSh
     end
 
     # Check if a given public key string is in the authorized keys list.
+    # Scans the file line-by-line comparing raw strings — avoids parsing every
+    # line into Age::PublicKey objects just for a string comparison.
     def self.authorized?(path : String, pubkey_str : String) : Bool
-      parse(path).any? { |k| k.value == pubkey_str }
+      return false unless File.exists?(path)
+
+      File.each_line(path) do |line|
+        line = line.strip
+        next if line.empty? || line.starts_with?('#')
+
+        # Strip inline comments
+        if idx = line.index('#')
+          line = line[0, idx].strip
+        end
+        next if line.empty?
+
+        return true if line == pubkey_str
+      end
+      false
     end
   end
 end

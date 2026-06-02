@@ -17,20 +17,21 @@ module AgeSh
 
     # One direction of the encrypted channel.
     class Direction
-      getter key : Bytes
-      getter counter : UInt32
+      @key : Bytes
+      @counter : UInt32
+      @nonce_buf : Bytes
 
       def initialize(@key : Bytes)
         @counter = 0_u32
+        @nonce_buf = Bytes.new(NONCE_SIZE)
       end
 
       # Build the next nonce: [8 zero bytes][4-byte BE counter]
       private def next_nonce : Bytes
         raise Error.new("Transport counter exhausted") if @counter == UInt32::MAX
-        nonce = Bytes.new(NONCE_SIZE)
-        IO::ByteFormat::BigEndian.encode(@counter, nonce[8, 4])
+        IO::ByteFormat::BigEndian.encode(@counter, @nonce_buf[8, 4])
         @counter += 1
-        nonce
+        @nonce_buf
       end
 
       # Encrypt a payload. Returns ciphertext + tag.

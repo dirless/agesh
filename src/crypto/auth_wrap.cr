@@ -8,6 +8,8 @@ module AgeSh
     # This proves that the client holds the private key corresponding to the
     # public key in authorized_keys, without exposing the secret key.
     module AuthWrap
+      private ZERO_NONCE = Bytes.new(12)
+
       # Wrap a challenge for a recipient's AGE public key.
       # Returns {ephemeral_public_key, wrapped_challenge (48 bytes)}.
       def self.wrap(challenge : Bytes, recipient_pub_bytes : Bytes) : {Bytes, Bytes}
@@ -22,8 +24,7 @@ module AgeSh
         recipient_pub_bytes.copy_to(salt[32, 32])
 
         wrap_key = Age::HKDF.sha256(shared, salt, Age::X25519_INFO.to_slice, 32)
-        zero_nonce = Bytes.new(12)
-        wrapped = Age::ChaCha20Poly1305.encrypt(wrap_key, zero_nonce, challenge)
+        wrapped = Age::ChaCha20Poly1305.encrypt(wrap_key, ZERO_NONCE, challenge)
 
         {ephem_pub, wrapped}
       end
@@ -44,8 +45,7 @@ module AgeSh
         pub_bytes.copy_to(salt[32, 32])
 
         wrap_key = Age::HKDF.sha256(shared, salt, Age::X25519_INFO.to_slice, 32)
-        zero_nonce = Bytes.new(12)
-        Age::ChaCha20Poly1305.decrypt(wrap_key, zero_nonce, wrapped)
+        Age::ChaCha20Poly1305.decrypt(wrap_key, ZERO_NONCE, wrapped)
       end
     end
   end

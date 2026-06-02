@@ -1,12 +1,11 @@
 module AgeSh
   module Constants
-    VERSION          = "0.0.3"
+    VERSION          = "0.0.4"
     PROTOCOL_VERSION = 1_u8
     DEFAULT_PORT     = 2202
 
     # Message types
     MSG_VERSION        = 0x01_u8
-    MSG_VERSION_ACK    = 0x02_u8
     MSG_KEY_EXCHANGE   = 0x10_u8
     MSG_AUTH_REQUEST   = 0x20_u8
     MSG_AUTH_CHALLENGE = 0x21_u8
@@ -23,7 +22,6 @@ module AgeSh
     # Transport
     MAX_RECORD_SIZE = 64 * 1024
     CHALLENGE_SIZE  = 32
-    NONCE_SIZE      = 12
 
     # HKDF info strings
     TRANSPORT_INFO = "age-terminal.org/v1/transport"

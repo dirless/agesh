@@ -29,8 +29,8 @@ module AgeSh
         LibC.exit(1)
       end
       secret_key_str = File.read(identity_path).strip
-      secret_key = begin
-        Age::SecretKey.new(secret_key_str)
+      begin
+        Age::SecretKey.new(secret_key_str) # validates prefix before decoding
       rescue ex : Age::Error
         STDERR.puts "Error: invalid identity file #{identity_path}: #{ex.message}"
         LibC.exit(1)

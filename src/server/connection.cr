@@ -115,8 +115,13 @@ module AgeSh
 
         case tag
         when Constants::TAG_DATA
-          written = LibC.write(master_fd, payload.to_unsafe.as(Void*), payload.size)
-          return false if written < 0
+          # Write full payload to PTY master, handling partial writes
+          offset = 0
+          while offset < payload.size
+            written = LibC.write(master_fd, payload.to_unsafe.as(Void*).offset(offset), payload.size - offset)
+            return false if written < 0
+            offset += written
+          end
         when Constants::TAG_WINDOW_RESIZE
           handle_resize(payload, master_fd)
         when Constants::TAG_SESSION_END
