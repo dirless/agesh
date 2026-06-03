@@ -1,6 +1,6 @@
 module AgeSh
   module Constants
-    VERSION          = "0.0.7"
+    VERSION          = "0.1.0"
     PROTOCOL_VERSION = 1_u8
     DEFAULT_PORT     = 2202
 
@@ -13,10 +13,12 @@ module AgeSh
     MSG_AUTH_RESULT    = 0x23_u8
     MSG_SESSION_SETUP  = 0x30_u8
     MSG_SESSION_READY  = 0x31_u8
+    MSG_EXEC_SETUP     = 0x32_u8
 
     # Data channel tags
     TAG_DATA          = 0x00_u8
     TAG_WINDOW_RESIZE = 0x01_u8
+    TAG_EXIT_CODE     = 0x03_u8
     TAG_SESSION_END   = 0xFF_u8
 
     # Transport

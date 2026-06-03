@@ -141,15 +141,58 @@ module AgeSh
       {term_type, rows, cols, env}
     end
 
-    # Session ready: [type=0x31][status: u8]
-    def self.write_session_ready : Bytes
-      Bytes[Constants::MSG_SESSION_READY, 0x00_u8]
+    # Session ready: [type=0x31][status: u8][error_message: null-terminated (only when status != 0)]
+    def self.write_session_ready(success : Bool, message : String = "") : Bytes
+      if success
+        Bytes[Constants::MSG_SESSION_READY, 0x00_u8]
+      else
+        io = IO::Memory.new
+        io.write_byte(Constants::MSG_SESSION_READY)
+        io.write_byte(0x01_u8)
+        io.print(message)
+        io.write_byte(0_u8)
+        io.to_slice
+      end
     end
 
-    def self.read_session_ready(data : Bytes) : Bool
+    def self.read_session_ready(data : Bytes) : {Bool, String}
       raise Error.new("Session ready too short") if data.size < 2
       raise Error.new("Not a session ready") unless data[0] == Constants::MSG_SESSION_READY
-      data[1] == 0x00_u8
+      success = data[1] == 0x00_u8
+      message = data.size > 2 ? String.new(data[2, data.size - 2]).rstrip('\0') : ""
+      {success, message}
+    end
+
+    # Exec setup: [type=0x32][command: null-terminated][env_count: u16 BE][env: key\0value\0...]
+    def self.write_exec_setup(command : String, env : Hash(String, String) = {} of String => String) : Bytes
+      io = IO::Memory.new
+      io.write_byte(Constants::MSG_EXEC_SETUP)
+      io.print(command)
+      io.write_byte(0_u8)
+      io.write_bytes(env.size.to_u16, IO::ByteFormat::BigEndian)
+      env.each do |key, value|
+        io.print(key)
+        io.write_byte(0_u8)
+        io.print(value)
+        io.write_byte(0_u8)
+      end
+      io.to_slice
+    end
+
+    def self.read_exec_setup(data : Bytes) : {String, Hash(String, String)}
+      raise Error.new("Exec setup too short") if data.size < 2
+      raise Error.new("Not an exec setup") unless data[0] == Constants::MSG_EXEC_SETUP
+      payload = data[1, data.size - 1]
+      reader = IO::Memory.new(payload)
+      command = reader.gets('\0') || ""
+      env_count = reader.read_bytes(UInt16, IO::ByteFormat::BigEndian)
+      env = Hash(String, String).new
+      env_count.times do
+        key = reader.gets('\0') || ""
+        value = reader.gets('\0') || ""
+        env[key] = value
+      end
+      {command, env}
     end
   end
 end

@@ -25,25 +25,20 @@ module AgeSh
           user_info = UserInfo.lookup(username)
           raise Error.new("User #{username} not found") unless user_info
 
-          # Phase 3: Session setup
-          term_type, rows, cols, env = Session.server_setup(transport, @socket)
+          # Phase 3: Read next message to determine session type
+          encrypted_setup = Framer.read_message(@socket)
+          _, setup_data = transport.recv_record(encrypted_setup)
 
-          # Phase 4: Allocate PTY and spawn shell
-          master_fd, slave_path = PTY.allocate
-          begin
-            child_pid = UserSession.spawn_with_master(
-              master_fd, slave_path, user_info, term_type, rows, cols, env
-            )
-          rescue ex
-            LibC.close(master_fd) rescue nil
-            raise ex
+          msg_type = setup_data[0]?
+
+          case msg_type
+          when Constants::MSG_SESSION_SETUP
+            handle_shell_session(transport, user_info, username, setup_data)
+          when Constants::MSG_EXEC_SETUP
+            handle_exec_session(transport, user_info, username, setup_data)
+          else
+            raise Error.new("Unknown session setup type: #{msg_type ? "0x#{msg_type.to_s(16)}" : "empty"}")
           end
-
-          Logger.info("Session started: user=#{username} pid=#{child_pid} term=#{term_type} #{rows}x#{cols}")
-
-          # Phase 5: Two-fiber proxy loop
-          pty_io = IO::FileDescriptor.new(master_fd)
-          proxy(transport, @socket, pty_io, master_fd, child_pid)
         rescue ex : Exception
           Logger.error("Connection error: #{ex.message}")
         ensure
@@ -51,7 +46,68 @@ module AgeSh
         end
       end
 
-      # Two-fiber proxy: one reads PTY and writes socket, one reads socket and writes PTY.
+      # Interactive shell session: PTY + forked shell.
+      private def handle_shell_session(
+        transport : Transport::Session,
+        user_info : UserInfo,
+        username : String,
+        setup_data : Bytes,
+      ) : Nil
+        term_type, rows, cols, env = Messages.read_session_setup(setup_data)
+
+        # Confirm readiness
+        ready = Messages.write_session_ready(true)
+        encrypted_ready = transport.send_record(Constants::TAG_DATA, ready)
+        Framer.write_message(@socket, encrypted_ready)
+
+        # Allocate PTY and spawn shell
+        master_fd, slave_path = PTY.allocate
+        begin
+          child_pid = UserSession.spawn_with_master(
+            master_fd, slave_path, user_info, term_type, rows, cols, env
+          )
+        rescue ex
+          LibC.close(master_fd) rescue nil
+          raise ex
+        end
+
+        Logger.info("Session started: user=#{username} pid=#{child_pid} term=#{term_type} #{rows}x#{cols}")
+
+        pty_io = IO::FileDescriptor.new(master_fd)
+        proxy(transport, @socket, pty_io, master_fd, child_pid)
+      end
+
+      # Command execution session: pipes + exec (no PTY).
+      private def handle_exec_session(
+        transport : Transport::Session,
+        user_info : UserInfo,
+        username : String,
+        setup_data : Bytes,
+      ) : Nil
+        command, env = Messages.read_exec_setup(setup_data)
+
+        # Check if the command exists before replying
+        cmd_name = command.split(' ', 2)[0]?
+        if cmd_name && !ExecSession.command_exists?(cmd_name)
+          ready = Messages.write_session_ready(false, "#{cmd_name}: command not found")
+          encrypted_ready = transport.send_record(Constants::TAG_DATA, ready)
+          Framer.write_message(@socket, encrypted_ready)
+          Logger.info("Exec rejected: #{cmd_name} not found for user=#{username}")
+          return
+        end
+
+        # Confirm readiness
+        ready = Messages.write_session_ready(true)
+        encrypted_ready = transport.send_record(Constants::TAG_DATA, ready)
+        Framer.write_message(@socket, encrypted_ready)
+
+        exec_result = ExecSession.spawn_with_pipes(command, user_info, env)
+        Logger.info("Exec started: user=#{username} pid=#{exec_result.child_pid} cmd=#{command}")
+
+        exec_proxy(transport, @socket, exec_result)
+      end
+
+      # Two-fiber proxy for PTY sessions.
       private def proxy(
         transport : Transport::Session,
         socket : TCPSocket,
@@ -102,6 +158,72 @@ module AgeSh
         UserSession.wait(child_pid) rescue nil
       end
 
+      # Two-fiber proxy for exec sessions (pipes, no PTY, no window resize).
+      # Sends TAG_EXIT_CODE before closing so the client can propagate the exit status.
+      #
+      # Flow: Fiber 2 closes child stdin when the client sends TAG_SESSION_END (EOF),
+      # which lets the child finish and close its stdout. Fiber 1 then reads EOF on
+      # stdout and signals done. This ensures all output reaches the client before exit.
+      private def exec_proxy(
+        transport : Transport::Session,
+        socket : TCPSocket,
+        exec_result : ExecSession::ExecResult,
+      ) : Nil
+        done = Channel(Nil).new(1)
+        stdin_fd = exec_result.stdin_fd
+
+        # Fiber 1: child stdout -> Socket. Signals done when child closes stdout (exits).
+        spawn do
+          stdout_io = IO::FileDescriptor.new(exec_result.stdout_fd)
+          buf = Bytes.new(Constants::MAX_RECORD_SIZE)
+          loop do
+            count = stdout_io.read(buf)
+            if count == 0
+              done.send(nil) rescue nil
+              break
+            end
+            payload = buf[0, count]
+            encrypted = transport.send_record(Constants::TAG_DATA, payload)
+            Framer.write_record(socket, encrypted)
+          end
+        rescue ex
+          Logger.debug("Exec stdout->Socket fiber error: #{ex.message}")
+          done.send(nil) rescue nil
+        end
+
+        # Fiber 2: Socket -> child stdin.
+        # On TAG_SESSION_END or error, closes child stdin so the child gets EOF.
+        # Does NOT signal done — Fiber 1 owns the done signal.
+        spawn do
+          loop do
+            begin
+              if !read_exec_socket_record(transport, socket, stdin_fd)
+                LibC.close(stdin_fd) rescue nil
+                break
+              end
+            rescue ex : IO::Error
+              LibC.close(stdin_fd) rescue nil
+              break
+            end
+          end
+        end
+
+        # Block until child stdout is exhausted (Fiber 1 signals done).
+        done.receive
+        Logger.debug("Exec proxy loop ended")
+      ensure
+        LibC.close(exec_result.stdout_fd) rescue nil
+        status = UserSession.wait(exec_result.child_pid) rescue nil
+        if status
+          code = UserSession.exit_code(status)
+          Logger.debug("Exec exited with code #{code}")
+          payload = Bytes.new(1)
+          payload[0] = code.to_u8
+          encrypted = transport.send_record(Constants::TAG_EXIT_CODE, payload)
+          Framer.write_record(socket, encrypted) rescue nil
+        end
+      end
+
       private def read_socket_record(transport, io : IO, master_fd : Int32) : Bool
         len_buf = Bytes.new(4)
         return false unless Framer.read_exact(io, len_buf)
@@ -128,6 +250,34 @@ module AgeSh
           return false
         else
           Logger.warn("Unknown data channel tag: #{tag}")
+        end
+        true
+      end
+
+      private def read_exec_socket_record(transport, io : IO, stdin_fd : Int32) : Bool
+        len_buf = Bytes.new(4)
+        return false unless Framer.read_exact(io, len_buf)
+        length = IO::ByteFormat::BigEndian.decode(UInt32, len_buf)
+        return false if length == 0 || length > Constants::MAX_RECORD_SIZE
+
+        record = Bytes.new(length)
+        return false unless Framer.read_exact(io, record)
+
+        tag, payload = transport.recv_record(record)
+
+        case tag
+        when Constants::TAG_DATA
+          # Write full payload to child stdin, handling partial writes
+          offset = 0
+          while offset < payload.size
+            written = LibC.write(stdin_fd, payload[offset..].to_unsafe.as(Void*), payload.size - offset)
+            return false if written < 0
+            offset += written
+          end
+        when Constants::TAG_SESSION_END
+          return false
+        else
+          Logger.warn("Unknown data channel tag in exec mode: #{tag}")
         end
         true
       end

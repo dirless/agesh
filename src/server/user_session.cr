@@ -46,9 +46,12 @@ module AgeSh
         LibC.dup2(slave_fd, 2)
         LibC.close(slave_fd) if slave_fd > 2
 
-        LibC._exit(1) if LibC.setgid(user_info.gid) < 0
-        LibC._exit(1) if LibC.initgroups(user_info.username, user_info.gid) < 0
-        LibC._exit(1) if LibC.setuid(user_info.uid) < 0
+        # Privilege drop only works if running as root; skip if already the target user.
+        if LibC.getuid == 0
+          LibC._exit(1) if LibC.setgid(user_info.gid) < 0
+          LibC._exit(1) if LibC.initgroups(user_info.username, user_info.gid) < 0
+          LibC._exit(1) if LibC.setuid(user_info.uid) < 0
+        end
 
         LibC.chdir(home_str) unless home_str.empty? # home_str allocated in parent — safe
 
@@ -69,7 +72,20 @@ module AgeSh
       status
     end
 
-    private def self.build_env(user_info : UserInfo, term_type : String, extra : Hash(String, String)) : Array(Pointer(UInt8))
+    # Extract exit code from raw waitpid status (POSIX macro equivalents).
+    def self.exit_code(status : Int32) : Int32
+      if (status & 0x7f) == 0       # WIFEXITED
+        (status >> 8) & 0xff        # WEXITSTATUS
+      elsif (status & 0x7f) != 0x7f # WIFSIGNALED
+        128 + (status & 0x7f)       # 128 + WTERMSIG
+      else
+        1
+      end
+    end
+
+    # Build C envp array (null-terminated) for use in execve.
+    # Kept public so ExecSession can reuse it for command mode.
+    def self.build_env(user_info : UserInfo, term_type : String = "", extra : Hash(String, String) = {} of String => String) : Array(Pointer(UInt8))
       base = {
         "TERM"    => term_type,
         "HOME"    => user_info.home || "/",

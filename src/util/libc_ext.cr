@@ -14,6 +14,7 @@ lib LibC
   fun setuid(uid : UidT) : Int32
   fun chdir(path : Char*) : Int32
   fun prctl(option : Int32, arg : UInt64, ...) : Int32
+  fun execvp(file : Char*, argv : Char**) : Int32
 
   # User/group functions
   fun initgroups(user : Char*, group : GidT) : Int32
