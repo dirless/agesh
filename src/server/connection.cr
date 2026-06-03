@@ -118,7 +118,7 @@ module AgeSh
           # Write full payload to PTY master, handling partial writes
           offset = 0
           while offset < payload.size
-            written = LibC.write(master_fd, payload.to_unsafe.as(Void*).offset(offset), payload.size - offset)
+            written = LibC.write(master_fd, payload[offset..].to_unsafe.as(Void*), payload.size - offset)
             return false if written < 0
             offset += written
           end

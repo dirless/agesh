@@ -4,7 +4,3 @@ shards:
     git: https://github.com/dirless/age-crystal.git
     version: 0.3.0
 
-  ameba:
-    git: https://github.com/crystal-ameba/ameba.git
-    version: 1.6.4
-

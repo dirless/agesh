@@ -4,14 +4,13 @@ require "socket"
 module AgeSh
   module ServerCLI
     def self.run(args : Array(String)) : Nil
-      if args.empty?
+      if args.includes?("-v") || args.includes?("--version")
         puts "agesh-server v#{Constants::VERSION}"
-        print_help
         return
       end
 
-      if args.includes?("-v") || args.includes?("--version")
-        puts "agesh-server v#{Constants::VERSION}"
+      if args.includes?("-h") || args.includes?("--help")
+        print_help
         return
       end
 
@@ -55,11 +54,6 @@ module AgeSh
         when "-p", "--port"
           i += 1
           port = args[i].to_i? || Constants::DEFAULT_PORT if i < args.size
-        when "-h", "--help"
-          print_help
-          LibC.exit(0)
-        when "-v", "--version"
-          # handled above
         else
           STDERR.puts "Unknown option: #{args[i]}"
           print_help

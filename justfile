@@ -70,3 +70,28 @@ build-static:
   echo "  ✓ Server  ({{bin_dir}}/agesh-server, static, $(ls -lh {{bin_dir}}/agesh-server | awk '{print $5}'))"
   echo "  ✓ Client  ({{bin_dir}}/agesh, static, $(ls -lh {{bin_dir}}/agesh | awk '{print $5}'))"
 
+# --- Statically linked binaries via Docker (Alpine/musl) ---
+#
+# Builds portable static binaries inside a Crystal Alpine container.
+# No local static libraries required — Alpine's zstd-dev provides libzstd.a.
+# Skips development dependencies (ameba) during shards install.
+build-static-with-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p {{bin_dir}}
+  docker run --rm \
+    -v "$PWD":/src \
+    -w /src \
+    crystallang/crystal:latest-alpine \
+    sh -c "apk add --no-cache zstd-dev gmp-dev build-base wget m4 && \
+             wget -q https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz && \
+             tar xf gmp-6.3.0.tar.xz && cd gmp-6.3.0 && \
+             ./configure --enable-static --disable-shared --prefix=/usr && \
+             make -j\$(nproc) install && cd .. && rm -rf gmp-6.3.0 && \
+             shards install --without-development && \
+             crystal build src/cli/server.cr -o {{bin_dir}}/agesh-server --release --no-debug --static && \
+             crystal build src/cli/client.cr  -o {{bin_dir}}/agesh         --release --no-debug --static && \
+             strip {{bin_dir}}/agesh-server {{bin_dir}}/agesh"
+  echo "  ✓ Server  ({{bin_dir}}/agesh-server, static, $(ls -lh {{bin_dir}}/agesh-server | awk '{print $5}'))"
+  echo "  ✓ Client  ({{bin_dir}}/agesh, static, $(ls -lh {{bin_dir}}/agesh | awk '{print $5}'))"
+
