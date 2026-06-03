@@ -69,6 +69,12 @@ module AgeSh
         AgeSh::Client::Terminal.raw do
           proxy(transport, socket, stdin_io, stdout_io)
         end
+      rescue ex : AgeSh::Error
+        STDERR.puts "Error: #{ex.message}"
+        LibC.exit(1)
+      rescue ex : Socket::Error
+        STDERR.puts "Error: #{ex.message}"
+        LibC.exit(1)
       ensure
         socket.close rescue nil
       end
