@@ -28,7 +28,10 @@ module AgeSh
         STDERR.puts "Error: identity file not found: #{identity_path}"
         LibC.exit(1)
       end
-      secret_key_str = File.read(identity_path).strip
+      secret_key_str = begin
+        lines = File.read_lines(identity_path)
+        lines.find { |l| l.starts_with?("AGE-SECRET-KEY-") } || raise "no secret key found"
+      end
       begin
         Age::SecretKey.new(secret_key_str) # validates prefix before decoding
       rescue ex : Age::Error

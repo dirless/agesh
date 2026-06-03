@@ -22,9 +22,13 @@ module AgeSh
       encrypted_request = transport.send_record(Constants::TAG_DATA, request)
       Framer.write_message(io, encrypted_request)
 
-      # Read auth challenge
+      # Read auth challenge (or rejection if key is unauthorized)
       encrypted_challenge = Framer.read_message(io)
       _, challenge_data = transport.recv_record(encrypted_challenge)
+      if challenge_data[0] == Constants::MSG_AUTH_RESULT
+        success, message = Messages.read_auth_result(challenge_data)
+        raise Error.new("Auth failed: #{message}") unless success
+      end
       challenge, ephemeral_pub, wrapped = Messages.read_auth_challenge(challenge_data)
 
       # Unwrap the challenge using our secret key (pass pub_bytes to skip redundant scalar mult)
