@@ -14,7 +14,7 @@ module AgeSh
           # Phase 2: Authentication
           key_resolver = Proc(String, String?).new do |uname|
             info = UserInfo.lookup(uname)
-            next nil unless info
+            next "" unless info
             if home = info.home
               File.join(home, Constants::AUTHORIZED_KEYS_DIR, Constants::AUTHORIZED_KEYS_FILE)
             end
@@ -119,7 +119,7 @@ module AgeSh
 
         # Fiber 1: PTY -> Socket (shell output)
         spawn do
-          buf = Bytes.new(Constants::MAX_RECORD_SIZE)
+          buf = Bytes.new(Constants::MAX_PAYLOAD_SIZE)
           loop do
             count = pty_io.read(buf)
             if count == 0
@@ -158,42 +158,70 @@ module AgeSh
         UserSession.wait(child_pid) rescue nil
       end
 
-      # Two-fiber proxy for exec sessions (pipes, no PTY, no window resize).
+      # Proxy for exec sessions (pipes, no PTY, no window resize).
       # Sends TAG_EXIT_CODE before closing so the client can propagate the exit status.
       #
       # Flow: Fiber 2 closes child stdin when the client sends TAG_SESSION_END (EOF),
-      # which lets the child finish and close its stdout. Fiber 1 then reads EOF on
-      # stdout and signals done. This ensures all output reaches the client before exit.
+      # which lets the child finish and close its stdout/stderr. The stdout and stderr
+      # fibers then read EOF and each signal done. Once both have drained, we send the
+      # exit code. stdout (TAG_DATA) carries the binary protocol stream and stderr
+      # (TAG_STDERR) is forwarded separately so it can't corrupt that stream.
       private def exec_proxy(
         transport : Transport::Session,
         socket : TCPSocket,
         exec_result : ExecSession::ExecResult,
       ) : Nil
-        done = Channel(Nil).new(1)
+        done = Channel(Nil).new(2)
         stdin_fd = exec_result.stdin_fd
 
-        # Fiber 1: child stdout -> Socket. Signals done when child closes stdout (exits).
+        # Multiple fibers (stdout, stderr, exit code) write to the socket. Encrypt
+        # and write under one lock so the transport counter order matches the wire
+        # order — otherwise the client decrypts records against the wrong nonce.
+        write_mutex = Mutex.new
+        send_frame = ->(tag : UInt8, payload : Bytes) do
+          write_mutex.synchronize do
+            encrypted = transport.send_record(tag, payload)
+            Framer.write_record(socket, encrypted)
+          end
+        end
+
+        # Fiber 1: child stdout -> Socket (binary protocol stream). Signals done on EOF.
         spawn do
           stdout_io = IO::FileDescriptor.new(exec_result.stdout_fd)
-          buf = Bytes.new(Constants::MAX_RECORD_SIZE)
+          buf = Bytes.new(Constants::MAX_PAYLOAD_SIZE)
           loop do
             count = stdout_io.read(buf)
             if count == 0
               done.send(nil) rescue nil
               break
             end
-            payload = buf[0, count]
-            encrypted = transport.send_record(Constants::TAG_DATA, payload)
-            Framer.write_record(socket, encrypted)
+            send_frame.call(Constants::TAG_DATA, buf[0, count])
           end
         rescue ex
           Logger.debug("Exec stdout->Socket fiber error: #{ex.message}")
           done.send(nil) rescue nil
         end
 
+        # Fiber 1b: child stderr -> Socket (separate channel). Signals done on EOF.
+        spawn do
+          stderr_io = IO::FileDescriptor.new(exec_result.stderr_fd)
+          buf = Bytes.new(Constants::MAX_PAYLOAD_SIZE)
+          loop do
+            count = stderr_io.read(buf)
+            if count == 0
+              done.send(nil) rescue nil
+              break
+            end
+            send_frame.call(Constants::TAG_STDERR, buf[0, count])
+          end
+        rescue ex
+          Logger.debug("Exec stderr->Socket fiber error: #{ex.message}")
+          done.send(nil) rescue nil
+        end
+
         # Fiber 2: Socket -> child stdin.
         # On TAG_SESSION_END or error, closes child stdin so the child gets EOF.
-        # Does NOT signal done — Fiber 1 owns the done signal.
+        # Does NOT signal done — the stdout/stderr fibers own the done signals.
         spawn do
           loop do
             begin
@@ -208,19 +236,21 @@ module AgeSh
           end
         end
 
-        # Block until child stdout is exhausted (Fiber 1 signals done).
-        done.receive
+        # Block until both stdout and stderr are fully drained.
+        2.times { done.receive }
         Logger.debug("Exec proxy loop ended")
       ensure
         LibC.close(exec_result.stdout_fd) rescue nil
+        LibC.close(exec_result.stderr_fd) rescue nil
         status = UserSession.wait(exec_result.child_pid) rescue nil
         if status
           code = UserSession.exit_code(status)
           Logger.debug("Exec exited with code #{code}")
           payload = Bytes.new(1)
           payload[0] = code.to_u8
-          encrypted = transport.send_record(Constants::TAG_EXIT_CODE, payload)
-          Framer.write_record(socket, encrypted) rescue nil
+          if sf = send_frame
+            sf.call(Constants::TAG_EXIT_CODE, payload) rescue nil
+          end
         end
       end
 

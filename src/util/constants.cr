@@ -1,6 +1,6 @@
 module AgeSh
   module Constants
-    VERSION          = "0.1.0"
+    VERSION          = "0.1.7"
     PROTOCOL_VERSION = 1_u8
     DEFAULT_PORT     = 2202
 
@@ -18,12 +18,20 @@ module AgeSh
     # Data channel tags
     TAG_DATA          = 0x00_u8
     TAG_WINDOW_RESIZE = 0x01_u8
+    TAG_STDERR        = 0x02_u8
     TAG_EXIT_CODE     = 0x03_u8
     TAG_SESSION_END   = 0xFF_u8
 
     # Transport
-    MAX_RECORD_SIZE = 64 * 1024
-    CHALLENGE_SIZE  = 32
+    # MAX_RECORD_SIZE is the max size of an *encrypted* wire frame. Encryption adds
+    # RECORD_OVERHEAD bytes (1-byte channel tag + 16-byte Poly1305 tag) to the
+    # plaintext, so plaintext payloads must be read in chunks of at most
+    # MAX_PAYLOAD_SIZE — otherwise the encrypted frame exceeds MAX_RECORD_SIZE and
+    # the receiver drops it as oversized, truncating the stream.
+    MAX_RECORD_SIZE  = 64 * 1024
+    RECORD_OVERHEAD  = 17
+    MAX_PAYLOAD_SIZE = MAX_RECORD_SIZE - RECORD_OVERHEAD
+    CHALLENGE_SIZE   = 32
 
     # HKDF info strings
     TRANSPORT_INFO = "age-terminal.org/v1/transport"

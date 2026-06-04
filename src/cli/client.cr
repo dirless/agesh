@@ -92,7 +92,7 @@ module AgeSh
 
       # Fiber 1: stdin -> socket
       spawn do
-        buf = Bytes.new(Constants::MAX_RECORD_SIZE)
+        buf = Bytes.new(Constants::MAX_PAYLOAD_SIZE)
         loop do
           count = stdin.read(buf)
           if count == 0

@@ -80,7 +80,7 @@ module AgeSh
       # Check authorized_keys using the per-user path returned by the resolver
       if path = key_resolver.call(username)
         unless AuthorizedKeys.authorized?(path, pubkey_str)
-          send_auth_result(transport, io, false, "Key not authorized")
+          send_auth_result(transport, io, false, "Authentication failed")
           raise Error.new("Unauthorized key for #{username}")
         end
       end
@@ -105,7 +105,7 @@ module AgeSh
         Logger.info("Auth success: user=#{username}")
         username
       else
-        send_auth_result(transport, io, false, "Challenge verification failed")
+        send_auth_result(transport, io, false, "Authentication failed")
         raise Error.new("Challenge verification failed for #{username}")
       end
     end

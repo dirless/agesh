@@ -8,8 +8,9 @@ module AgeSh
       getter child_pid : Int32
       getter stdin_fd : Int32  # write end — write data here to send to child's stdin
       getter stdout_fd : Int32 # read end — read from here to get child's stdout
+      getter stderr_fd : Int32 # read end — read from here to get child's stderr
 
-      def initialize(@child_pid : Int32, @stdin_fd : Int32, @stdout_fd : Int32)
+      def initialize(@child_pid : Int32, @stdin_fd : Int32, @stdout_fd : Int32, @stderr_fd : Int32)
       end
     end
 
@@ -34,8 +35,10 @@ module AgeSh
       # Create pipe pairs
       stdin_fds = uninitialized LibC::Int[2]
       stdout_fds = uninitialized LibC::Int[2]
+      stderr_fds = uninitialized LibC::Int[2]
       raise Error.new("pipe(stdin) failed: #{Errno.value}") if LibC.pipe(stdin_fds) < 0
       raise Error.new("pipe(stdout) failed: #{Errno.value}") if LibC.pipe(stdout_fds) < 0
+      raise Error.new("pipe(stderr) failed: #{Errno.value}") if LibC.pipe(stderr_fds) < 0
 
       pid = LibC.fork
       raise Error.new("fork failed: #{Errno.value}") if pid < 0
@@ -45,17 +48,21 @@ module AgeSh
         LibC.prctl(LibC::PR_SET_PDEATHSIG, 9_u64)
         LibC.setsid
 
-        # Wire up pipes: child reads from stdin, writes to stdout
+        # Wire up pipes: child reads from stdin, writes to stdout/stderr.
+        # stderr is kept SEPARATE from stdout — merging them corrupts binary
+        # protocol streams like rsync --server (which muxes over stdout).
         LibC.close(stdin_fds[1])  # close write end of stdin pipe
         LibC.close(stdout_fds[0]) # close read end of stdout pipe
+        LibC.close(stderr_fds[0]) # close read end of stderr pipe
 
         LibC.dup2(stdin_fds[0], 0)
         LibC.dup2(stdout_fds[1], 1)
-        LibC.dup2(stdout_fds[1], 2) # merge stderr into stdout
+        LibC.dup2(stderr_fds[1], 2)
 
         # Close original pipe fds now that they're duped
         LibC.close(stdin_fds[0]) if stdin_fds[0] > 2
         LibC.close(stdout_fds[1]) if stdout_fds[1] > 2
+        LibC.close(stderr_fds[1]) if stderr_fds[1] > 2
 
         home_str = (user_info.home || "/")
         # Privilege drop only works if running as root; skip if already the target user.
@@ -74,9 +81,10 @@ module AgeSh
         # === PARENT PROCESS ===
         LibC.close(stdin_fds[0])  # close read end of stdin pipe
         LibC.close(stdout_fds[1]) # close write end of stdout pipe
+        LibC.close(stderr_fds[1]) # close write end of stderr pipe
 
         Logger.debug("Exec spawned: pid=#{pid} cmd=#{command}")
-        ExecResult.new(pid, stdin_fds[1], stdout_fds[0])
+        ExecResult.new(pid, stdin_fds[1], stdout_fds[0], stderr_fds[0])
       end
     end
 
