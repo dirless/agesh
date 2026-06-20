@@ -4,9 +4,9 @@ version: 0.1.0
 description: AGE-encrypted terminal access client/server
 
 authors:
-  - "Dirless <hello@dirless.io>"
+  - "Dirless <info@dirless.com>"
 
-license: MIT
+license: Apache-2.0
 
 crystal: ">= 1.20.0"
 
